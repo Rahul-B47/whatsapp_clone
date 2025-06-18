@@ -6,75 +6,77 @@ const cors = require("cors");
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
-    cors: { origin: "*" }
+  cors: { origin: "*" }
 });
 
 app.use(cors());
 
-let clients = {}; // Store active clients
+let clients = {}; // { userId: socket }
 
 app.get("/", (req, res) => {
-    res.send("Socket.IO Server is running...");
+  res.send("Socket.IO Server is running...");
 });
 
 io.on("connection", (socket) => {
-    console.log(`✅ User Connected: ${socket.id}`);
+  console.log(`✅ Socket connected: ${socket.id}`);
 
-    // Handle user sign-in and store the client with proper ID validation
-    socket.on("signin", (id) => {
-        if (typeof id !== "string") {
-            console.error("❌ Invalid ID received. Expected a string but got:", id);
-            return;
-        }
-        
-        console.log(`👤 User signed in with ID: ${id}`);
-        clients[id] = socket; // Store the client socket
-        console.log("📌 Updated Clients List:", Object.keys(clients));
+  socket.on("signin", (id) => {
+    if (typeof id !== "string") {
+      console.error("❌ Invalid signin ID:", id);
+      return;
+    }
+
+    // If the user already exists with another socket, remove old one
+    Object.keys(clients).forEach((key) => {
+      if (clients[key] === socket) delete clients[key];
     });
 
-    socket.on("message",(msg)=>{
-        console.log(msg);
-        let targetId=msg.targetId;
-        if(clients[targetId]) clients[targetId].emit("message",msg);
-    })
+    clients[id] = socket;
+    console.log(`👤 User signed in with ID: ${id}`);
+    console.log("📌 Active Clients:", Object.keys(clients));
+  });
 
-    // Handle sending messages
-    socket.on("sendMessage", (data) => {
-        if (!data.sender || !data.message) {
-            console.error("⚠ Missing sender or message in data:", data);
-            return;
-        }
-        console.log(`📩 Message from ${data.sender}: ${data.message}`);
+  socket.on("message", (msg) => {
+    const { sourceId, targetId, message, path } = msg;
+    console.log(`📩 Message from ${sourceId} to ${targetId}: ${message}`);
 
-        io.emit("receiveMessage", data); // Broadcast message to all clients
-    });
+    // Emit to recipient
+    if (clients[targetId]) {
+      clients[targetId].emit("message", msg);
+      console.log(`✅ Sent to ${targetId}`);
+    } else {
+      console.warn(`⚠️ targetId ${targetId} not found in clients.`);
+    }
 
-    // Handle disconnection and remove the user from the clients list
-    socket.on("disconnect", () => {
-        console.log(`❌ User Disconnected: ${socket.id}`);
+    // Optional: Emit back to sender (useful for echo)
+    if (clients[sourceId]) {
+      clients[sourceId].emit("message", msg);
+    }
+  });
 
-        // Remove disconnected user from the clients list
-        for (let userId in clients) {
-            if (clients[userId] === socket) {
-                delete clients[userId];
-                console.log(`🗑️ Removed ${userId} from clients`);
-                break;
-            }
-        }
-    });
+  socket.on("disconnect", () => {
+    console.log(`❌ Disconnected: ${socket.id}`);
 
-    // Handle errors
-    socket.on("error", (error) => {
-        console.error("⚠ Socket Error:", error);
-    });
+    // Clean up disconnected socket
+    for (let id in clients) {
+      if (clients[id] === socket) {
+        delete clients[id];
+        console.log(`🗑️ Removed ${id} from clients.`);
+        break;
+      }
+    }
+  });
+
+  socket.on("error", (error) => {
+    console.error("⚠ Socket error:", error);
+  });
 });
 
-app.route("/check").get((req,res)=>{
-    return res.json("Ypur App is working Fine");
-})
+app.get("/check", (req, res) => {
+  res.json("✅ Server is running fine");
+});
 
-// Start the server
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
 });
