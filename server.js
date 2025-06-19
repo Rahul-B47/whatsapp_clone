@@ -20,83 +20,81 @@ app.get("/", (req, res) => {
 io.on("connection", (socket) => {
   console.log(`✅ Socket connected: ${socket.id}`);
 
-  // Handle user signin and store their socket
-  socket.on("signin", (id) => {
-    if (typeof id !== "string") {
-      console.error("❌ Invalid signin ID:", id);
+  // Handle user signin
+  socket.on("signin", (userId) => {
+    if (typeof userId !== "string") {
+      console.error("❌ Invalid signin ID:", userId);
       return;
     }
 
-    // Remove old reference of the same socket if re-signing
-    Object.keys(clients).forEach((key) => {
-      if (clients[key] === socket) delete clients[key];
+    // Remove old socket (if reconnected)
+    Object.entries(clients).forEach(([id, s]) => {
+      if (id === userId || s.id === socket.id) {
+        delete clients[id];
+      }
     });
 
-    clients[id] = socket;
-    console.log(`👤 User signed in with ID: ${id}`);
+    clients[userId] = socket;
+    socket.userId = userId; // 👈 attach userId to socket
+
+    console.log(`👤 User signed in with ID: ${userId}`);
     console.log("📌 Active Clients:", Object.keys(clients));
   });
 
-  // Handle one-to-one messages
+  // Handle one-to-one message
   socket.on("message", (msg) => {
-    const { sourceId, targetId, message, path } = msg;
+    const { sourceId, targetId, message } = msg;
+
     console.log(`📨 Message from ${sourceId} to ${targetId}: ${message}`);
 
-    if (clients[targetId]) {
-      clients[targetId].emit("message", msg); // ✅ Send to receiver only
+    const targetSocket = clients[targetId];
+
+    if (targetSocket) {
+      targetSocket.emit("message", msg);
       console.log(`✅ Delivered to ${targetId}`);
     } else {
       console.warn(`⚠️ Client ${targetId} not connected`);
     }
-
-    // ❌ DO NOT echo back to sender — avoids duplicate message display
   });
 
-  // ✅ Handle message read (blue tick)
-  socket.on("message_read", (data) => {
-    const { senderId, receiverId } = data;
-
+  // Message read handler
+  socket.on("message_read", ({ senderId, receiverId }) => {
     console.log(`📘 Message from ${senderId} was read by ${receiverId}`);
 
-    // Notify sender (if online) about read status
-    if (clients[senderId]) {
-      clients[senderId].emit("message_status_updated", {
+    const senderSocket = clients[senderId];
+    if (senderSocket) {
+      senderSocket.emit("message_status_updated", {
         senderId,
         receiverId,
         status: "read",
       });
-
       console.log(`✅ Notified ${senderId} about read status`);
     } else {
       console.warn(`⚠️ Sender ${senderId} not connected`);
     }
-
-    // Optional: Update message status in DB here if needed
   });
 
-  // Handle client disconnect
+  // Disconnect handler
   socket.on("disconnect", () => {
     console.log(`❌ Disconnected: ${socket.id}`);
-    for (let id in clients) {
-      if (clients[id] === socket) {
-        delete clients[id];
-        console.log(`🗑️ Removed ${id} from active clients`);
-        break;
-      }
+
+    if (socket.userId && clients[socket.userId]) {
+      delete clients[socket.userId];
+      console.log(`🗑️ Removed ${socket.userId} from active clients`);
     }
   });
 
+  // Socket error handler
   socket.on("error", (error) => {
     console.error("⚠ Socket error:", error);
   });
 });
 
-// Health check endpoint
+// Health check
 app.get("/check", (req, res) => {
   res.json("✅ Server is running fine");
 });
 
-// Start server
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
