@@ -52,6 +52,28 @@ io.on("connection", (socket) => {
     // ❌ DO NOT echo back to sender — avoids duplicate message display
   });
 
+  // ✅ Handle message read (blue tick)
+  socket.on("message_read", (data) => {
+    const { senderId, receiverId } = data;
+
+    console.log(`📘 Message from ${senderId} was read by ${receiverId}`);
+
+    // Notify sender (if online) about read status
+    if (clients[senderId]) {
+      clients[senderId].emit("message_status_updated", {
+        senderId,
+        receiverId,
+        status: "read",
+      });
+
+      console.log(`✅ Notified ${senderId} about read status`);
+    } else {
+      console.warn(`⚠️ Sender ${senderId} not connected`);
+    }
+
+    // Optional: Update message status in DB here if needed
+  });
+
   // Handle client disconnect
   socket.on("disconnect", () => {
     console.log(`❌ Disconnected: ${socket.id}`);
